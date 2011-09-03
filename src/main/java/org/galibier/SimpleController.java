@@ -62,6 +62,21 @@ public class SimpleController {
     private final CopyOnWriteArrayList<MessageListener> listeners =
             new CopyOnWriteArrayList<MessageListener>();
 
+    public void start(int port) {
+        ChannelFactory channelFactory = new NioServerSocketChannelFactory(
+                Executors.newCachedThreadPool(),
+                Executors.newCachedThreadPool()
+        );
+        ServerBootstrap bootstrap = new ServerBootstrap(channelFactory);
+        bootstrap.setPipelineFactory(new OpenFlowServerPipelineFactory(this));
+        bootstrap.setOption("reuseAddress", true);
+        bootstrap.setOption("child.tcpNoDelay", true);
+        bootstrap.setOption("child.keepAlive", true);
+
+        Channel channel = bootstrap.bind(new InetSocketAddress(port));
+        log.info("Controller started: {}", channel.getLocalAddress());
+    }
+
     public void addMessageListener(MessageListener listener) {
         //  avoid duplication
         listeners.addIfAbsent(listener);
@@ -188,25 +203,6 @@ public class SimpleController {
     }
 
     public static void main(String[] args) {
-        SimpleController controller = new SimpleController();
-        ChannelFactory channelFactory = new NioServerSocketChannelFactory(
-                Executors.newCachedThreadPool(),
-                Executors.newCachedThreadPool()
-        );
-        ServerBootstrap bootstrap = new ServerBootstrap(channelFactory);
-        bootstrap.setPipelineFactory(new OpenFlowServerPipelineFactory(controller));
-        bootstrap.setOption("reuseAddress", true);
-        bootstrap.setOption("child.tcpNoDelay", true);
-        bootstrap.setOption("child.keepAlive", true);
-
-        int port = CONTROLLER_DEFAULT_PORT;
-        if (args.length >= 1) {
-            port = Integer.parseInt(args[0]);
-        }
-
-        Channel channel = bootstrap.bind(new InetSocketAddress(port));
-        log.info("Controller started: {}", channel.getLocalAddress());
-
         //  act as a dumb hub / repeater hub
         MessageListener hub = new MessageListener() {
             public void messageReceived(Channel channel, OFMessage msg) {
@@ -236,6 +232,14 @@ public class SimpleController {
                 }
             }
         };
+
+        SimpleController controller = new SimpleController();
         controller.addMessageListener(hub);
+
+        int port = CONTROLLER_DEFAULT_PORT;
+        if (args.length >= 1) {
+            port = Integer.parseInt(args[0]);
+        }
+        controller.start(port);
     }
 }
