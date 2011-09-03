@@ -100,6 +100,7 @@ public class SimpleController {
         protected Object encode(ChannelHandlerContext ctx, Channel channel, Object msg) throws Exception {
             if (msg instanceof OFMessage) {
                 OFMessage response = (OFMessage) msg;
+                //  may have an bad effect on performance
                 ByteBuffer buffer = ByteBuffer.allocate(response.getLength());
                 response.writeTo(buffer);
                 buffer.flip();
@@ -152,6 +153,7 @@ public class SimpleController {
                         int xid = in.getXid();
                         OFMessage out = factory.getMessage(OFType.ECHO_REPLY);
                         out.setXid(xid);
+                        //  replies an ECHO_REPLY message
                         ctx.getChannel().write(out);
                         break;
                     case FEATURES_REPLY:
@@ -205,6 +207,7 @@ public class SimpleController {
         Channel channel = bootstrap.bind(new InetSocketAddress(port));
         log.info("Controller started: {}", channel.getLocalAddress());
 
+        //  act as a dumb hub / repeater hub
         MessageListener hub = new MessageListener() {
             public void messageReceived(Channel channel, OFMessage msg) {
                 if (msg.getType() == OFType.PACKET_IN) {
