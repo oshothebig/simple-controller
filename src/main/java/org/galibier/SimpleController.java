@@ -49,10 +49,12 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 
 public class SimpleController {
-    //  according to the ofp_header.length, the length of the field is 2 byte.
+    //  OpenFlowメッセージの長さのフィールドは2バイト長のため
     public static final int MAXIMUM_PACKET_LENGTH = 65535;
+    //  先頭から2バイトの位置に長さフィールドがある
     public static final int LENGTH_FIELD_OFFSET = 2;
     public static final int LENGTH_FIELD_LENGTH = 2;
+    //  長さフィールドが表すのはメッセージ全体の長さであるため
     public static final int LENGTH_FIELD_MODIFICATION = -4;
     public static final int CONTROLLER_DEFAULT_PORT = 6633;
 
@@ -62,6 +64,10 @@ public class SimpleController {
     private final CopyOnWriteArrayList<MessageListener> listeners =
             new CopyOnWriteArrayList<MessageListener>();
 
+    /**
+     * 指定したポート番号でスイッチからの接続を待ち受ける。
+     * @param port 待ち受けるポート番号
+     */
     public void start(int port) {
         ChannelFactory channelFactory = new NioServerSocketChannelFactory(
                 Executors.newCachedThreadPool(),
@@ -77,25 +83,44 @@ public class SimpleController {
         log.info("Controller started: {}", channel.getLocalAddress());
     }
 
+    /**
+     * MessageListenerを登録する。
+     * @param listener 登録するMessageListener
+     */
     public void addMessageListener(MessageListener listener) {
         //  avoid duplication
         listeners.addIfAbsent(listener);
     }
 
+    /**
+     * MessageListerの登録を解除する。
+     * @param listener 登録解除するMessageListener
+     */
     public void removeMessageListener(MessageListener listener) {
         listeners.remove(listener);
     }
 
+    /**
+     * 登録されたMessageListenerを呼び出す。
+     * @param channel メッセージを受信したChannel
+     * @param msg 受信したメッセージ
+     */
     public void invokeMessageListeners(Channel channel, OFMessage msg) {
         for (MessageListener listener: listeners) {
             listener.messageReceived(channel, msg);
         }
     }
 
+    /**
+     * OpenFlowプロトコルのメッセージが到着したときに呼び出されるリスナーを定義。
+     */
     public static interface MessageListener {
         public void messageReceived(Channel channel, OFMessage msg);
     }
 
+    /**
+     * 受信したストリームをOpenFlowプロトコルのメッセージオブジェクトに変換するクラス
+     */
     private static class OpenFlowDecoder extends OneToOneDecoder {
         @Override
         protected Object decode(ChannelHandlerContext ctx, Channel channel, Object msg) throws Exception {
@@ -110,6 +135,9 @@ public class SimpleController {
         }
     }
 
+    /**
+     * OpenFlowプロトコルのメッセージの送信時に、メッセージオブジェクトからストリームに変換するクラス
+     */
     private static class OpenFlowEncoder extends OneToOneEncoder {
         @Override
         protected Object encode(ChannelHandlerContext ctx, Channel channel, Object msg) throws Exception {
@@ -156,6 +184,7 @@ public class SimpleController {
             this.controller = controller;
         }
 
+        //  メッセージ受信時の動作を記述
         @Override
         public void messageReceived(ChannelHandlerContext ctx, MessageEvent e) throws Exception {
             if (e.getMessage() instanceof OFMessage) {
@@ -203,7 +232,7 @@ public class SimpleController {
     }
 
     public static void main(String[] args) {
-        //  act as a dumb hub / repeater hub
+        //  リピータハブとして動作
         MessageListener hub = new MessageListener() {
             public void messageReceived(Channel channel, OFMessage msg) {
                 if (msg.getType() == OFType.PACKET_IN) {
@@ -212,17 +241,18 @@ public class SimpleController {
                     out.setBufferId(in.getBufferId());
                     out.setInPort(in.getInPort());
 
-                    //  action for flooding
+                    //  フラッディングで出力
                     OFActionOutput action = new OFActionOutput();
                     action.setPort(OFPort.OFPP_FLOOD.getValue());
                     out.setActions(Collections.singletonList((OFAction)action));
                     out.setActionsLength((short)OFActionOutput.MINIMUM_LENGTH);
 
-                    //  set data using the incoming packet
+                    //  PACKET_INで受信したパケットの内容を出力パケットに設定
                     if (in.getBufferId() == 0xffffffff) {
                         byte[] packetData = in.getPacketData();
                         out.setLength((short)(OFPacketOut.MINIMUM_LENGTH + out.getActionsLength() + packetData.length));
                         out.setPacketData(packetData);
+                    //  バッファリングされている場合には、パケットの内容を設定しなくてもよい
                     } else {
                         out.setLength((short)(OFPacketOut.MINIMUM_LENGTH + out.getActionsLength()));
                     }
@@ -236,6 +266,7 @@ public class SimpleController {
         SimpleController controller = new SimpleController();
         controller.addMessageListener(hub);
 
+        //  引数が与えられた場合は、指定されたポート番号を使用
         int port = CONTROLLER_DEFAULT_PORT;
         if (args.length >= 1) {
             port = Integer.parseInt(args[0]);
